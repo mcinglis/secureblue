@@ -19,41 +19,32 @@ Secrets and variables > Actions**.
 
 ### `SIGNING_SECRET`
 
-This is the cosign private key, used by BlueBuild, with corresponding public key
-at [`./cosign.pub`](./cosign.pub). To generate a new key pair,
-per [BlueBuild documentation](https://blue-build.org/how-to/cosign/), run:
+This is the cosign private key. To generate a new key pair, per
+[BlueBuild's documentation](https://blue-build.org/how-to/cosign/), run:
 
-```
-$ skopeo generate-sigstore-key --output-prefix cosign 
-```
+    skopeo generate-sigstore-key --output-prefix cosign 
 
 Then:
 
-- copy the contents of `cosign.private` into a new `SIGNING_SECRET` Action
-  secret on the repository settings,
+- copy the contents of `cosign.private` into a new `SIGNING_SECRET` secret,
 - remove that file, and
 - commit the updated `cosign.pub` file.
 
 ### `KERNEL_PRIVKEY`
 
-This is the SecureBoot signing key, with corresponding public key at
-[`./files/system/etc/pki/akmods/certs/akmods-secureblue.der`](./files/system/etc/pki/akmods/certs/akmods-secureblue.der).
-To generate a new key pair, run:
+This is the SecureBoot signing key. To generate a new key pair, run:
 
-```
-$ openssl req -config ./files/scripts/certs/openssl.cnf \
-    -new -x509 \
-    -newkey rsa:2048 \
-    -nodes -days 36500 \
-    -outform DER \
-    -keyout './private_key.priv' \
-    -out './files/system/etc/pki/akmods/certs/akmods-secureblue.der'
-```
+    openssl req -config ./files/scripts/certs/openssl.cnf \
+        -new -x509 \
+        -newkey rsa:2048 \
+        -nodes -days 36500 \
+        -outform DER \
+        -keyout './private_key.priv' \
+        -out './files/system/etc/pki/akmods/certs/akmods-secureblue.der'
 
 Then:
 
-- copy the contents of `private_key.priv` into a new `KERNEL_PRIVKEY` Action
-  secret on the repository settings,
+- copy the contents of `private_key.priv` into a new `KERNEL_PRIVKEY` secret,
 - delete the `private_key.priv` file, and
 - commit the updated `akmods-secureblue.der` file.
 
