@@ -12,13 +12,6 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
 
-set -oue pipefail
+set -euo pipefail
 
-echo "Disabling print services"
-systemctl disable cups.socket
-systemctl mask cups.socket
-systemctl disable cups.service
-systemctl mask cups.service
-
-systemctl disable cups-browsed
-systemctl mask cups-browsed
+sed -i -e '$a\LD_PRELOAD DEFAULT=libhardened_malloc.so' -e '/^LD_PRELOAD[[:space:]]/d' /etc/security/pam_env.conf
