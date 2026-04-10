@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
 
-# Copyright 2025 Universal Blue
-# Copyright 2025 The Secureblue Authors
+# SPDX-FileCopyrightText: Copyright 2025 Universal Blue
+# SPDX-FileCopyrightText: Copyright 2025-2026 The Secureblue Authors
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software distributed under the License is
-# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and limitations under the License.
+# SPDX-License-Identifier: Apache-2.0
 
-set -oue pipefail
+set -euo pipefail
 
 MODULE_NAME="${1-}"
 if [ -z "$MODULE_NAME" ]; then
@@ -23,8 +15,12 @@ fi
 
 KERNEL_VERSION="$(rpm -q "kernel" --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}')"
 
+PUBLIC_KEY_DER_PATH="../system/etc/pki/akmods/certs/akmods-secureblue.der"
 PUBLIC_KEY_CRT_PATH="./certs/public_key.crt"
-PRIVATE_KEY_PATH="./certs/private_key.priv"
+PRIVATE_KEY_PATH="/tmp/certs/private_key.priv"
+openssl x509 -in "$PUBLIC_KEY_DER_PATH" -out "$PUBLIC_KEY_CRT_PATH"
+
+PRIVATE_KEY_PATH="/tmp/certs/private_key.priv"
 SIGNING_KEY="./certs/signing_key.pem"
 cat "$PRIVATE_KEY_PATH" <(echo) "$PUBLIC_KEY_CRT_PATH" >> "$SIGNING_KEY"
 

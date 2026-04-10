@@ -1,18 +1,8 @@
 #!/usr/bin/python3
 
-# Copyright 2025 The Secureblue Authors
+# SPDX-FileCopyrightText: Copyright 2025-2026 The Secureblue Authors
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-License-Identifier: Apache-2.0
 
 """
 Framework for system auditing.
@@ -20,10 +10,19 @@ Framework for system auditing.
 
 import dataclasses
 import enum
+import gettext
 import inspect
 import json
 from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from typing import Any, ClassVar, Final, Self
+
+
+def gettext_marker() -> Callable[[str], str]:
+    """Get the _ function used by gettext to mark translatable strings."""
+    return gettext.translation("audit_secureblue", "/usr/share/locale", fallback=True).gettext
+
+
+_: Final = gettext_marker()
 
 
 class AuditError(Exception):
@@ -39,6 +38,22 @@ class Status(enum.Enum):
     FAIL = 3
     UNKNOWN = 4
 
+    def local_name(self) -> str:
+        """Get localized name."""
+        match self:
+            case Status.PASS:
+                return _("PASS")
+            case Status.INFO:
+                return _("INFO")
+            case Status.WARN:
+                return _("WARN")
+            case Status.FAIL:
+                return _("FAIL")
+            case Status.UNKNOWN:
+                return _("UNKNOWN")
+            case _:
+                raise ValueError(f"Invalid enum value: {self}")
+
     def to_str_in_color(self) -> str:
         """Colored text representation of the status."""
         match self:
@@ -52,11 +67,47 @@ class Status(enum.Enum):
                 color_code = 31  # red
             case Status.UNKNOWN:
                 color_code = 37  # white
-        return f"\x1b[{color_code}m{self.name}\x1b[39m"
+        return f"\x1b[{color_code}m{self.local_name()}\x1b[39m"
 
-    def downgrade_to(self, other: Self) -> Self:
+    def icon(self) -> str:
+        """Colored icon associated with status."""
+        match self:
+            case Status.PASS:
+                icon = "✅"
+            case Status.INFO:
+                icon = "ℹ️"  # noqa: RUF001
+            case Status.WARN:
+                icon = "⚠️"
+            case Status.FAIL:
+                icon = "❌"
+            case Status.UNKNOWN:
+                icon = "❔"
+        return icon
+
+    def width(self) -> int:
+        """Printable width of status."""
+        return len(self.local_name())
+
+    def downgrade_to(self, other: "Status") -> "Status":
         """Returns the more severe of the two statuses."""
         return max(self, other, key=lambda status: status.value)
+
+
+@dataclasses.dataclass
+class Note:
+    """A line with additional info and optionally a status."""
+
+    text: str
+    status: Status | None = None
+
+    def __init__(self, note: str | Self, status: Status | None = None):
+        self.text = note.text if isinstance(note, Note) else str(note)
+        if status is not None:
+            self.status = status
+        elif isinstance(note, Note):
+            self.status = note.status
+        else:
+            self.status = None
 
 
 @dataclasses.dataclass
@@ -69,10 +120,6 @@ class Recommendation:
 
     def __init__(self, rec: str | Self, mergeable_name: str | None = None):
         self.text = rec.text if isinstance(rec, Recommendation) else str(rec)
-        if isinstance(rec, Recommendation):
-            self.text = rec.text
-        else:
-            self.text = str(rec)
         if mergeable_name is not None:
             self.mergeable_name = mergeable_name
         elif isinstance(rec, Recommendation):
@@ -86,7 +133,7 @@ class Report:
 
     description: str
     status: Status
-    warnings: list[str]
+    notes: list[Note]
     recs: list[Recommendation]
 
     def __init__(
@@ -94,17 +141,17 @@ class Report:
         desc: str,
         status: Status,
         *,
-        warnings: str | Sequence[str] | None = None,
+        notes: str | Note | Sequence[str | Note] | None = None,
         recs: str | Recommendation | Sequence[str | Recommendation] | None = None,
     ):
         self.description = desc
         self.status = status
-        if warnings is None:
-            self.warnings = []
-        elif isinstance(warnings, str):
-            self.warnings = [warnings]
+        if notes is None:
+            self.notes = []
+        elif isinstance(notes, (str, Note)):
+            self.notes = [Note(notes)]
         else:
-            self.warnings = list(warnings)
+            self.notes = [Note(note) for note in notes]
         if recs is None:
             self.recs = []
         elif isinstance(recs, (str, Recommendation)):
@@ -116,15 +163,16 @@ class Report:
         """Represent the report as a string formatted to the given width."""
         status_tag = f" [ {self.status.to_str_in_color()} ]"
         gray_start = "\x1b[38;5;241m"
-        desc_width = width - len(self.status.name) - 5 + len(gray_start)
+        desc_width = width - self.status.width() - 5 + len(gray_start)
         reset_color = "\x1b[39m"
         desc_with_sep = f"{self.description} {gray_start}".ljust(desc_width, "…") + reset_color
         report_str = desc_with_sep + status_tag
-        for warning in self.warnings:
-            warning_lines = [line.strip() for line in warning.splitlines() if line.strip()]
-            if warning_lines:
-                report_str += "\n> " + warning_lines[0]
-            for line in warning_lines[1:]:
+        for note in self.notes:
+            note_lines = [line.strip() for line in note.text.splitlines() if line.strip()]
+            if note_lines:
+                icon = ">" if note.status is None else note.status.icon()
+                report_str += f"\n{icon} " + note_lines[0]
+            for line in note_lines[1:]:
                 report_str += "\n  " + line
         return report_str
 
@@ -166,7 +214,7 @@ def bold(text: str) -> str:
     return f"\x1b[1m{text}\x1b[22m"
 
 
-def print_heading(text: str, width: int = 80):
+def print_heading(text: str, width: int = 80) -> None:
     """Formats the text as a heading and prints to the terminal."""
     print(f"\n\x1b[1;38;5;228m\x1b[48;5;63m{text}\x1b[0m")
     print("=" * width)
@@ -190,8 +238,8 @@ def _format_recommendation_text(rec_text: str, mergeable_names: list[str] | None
     return "\n  ".join(rec_lines_formatted) + "\n"
 
 
-def _print_recs(recs: list[Recommendation], width: int = 80):
-    print_heading("Recommendations", width=width)
+def _print_recs(recs: list[Recommendation], width: int = 80) -> None:
+    print_heading(_("Recommendations"), width=width)
     merged_recs_data: dict[str, list[str]] = {
         rec.text: [] for rec in recs if rec.mergeable_name is not None
     }
@@ -208,7 +256,7 @@ def _print_recs(recs: list[Recommendation], width: int = 80):
 class Audit:
     """A system audit."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.checks: list[Check] = []
         self.state: dict[str, Any] = {}
         self.recs: list[Recommendation] = []
@@ -218,7 +266,7 @@ class Audit:
         """Get a list of the names of all checks."""
         return [check.name for check in self.checks]
 
-    def add_check(self, check: Check):
+    def add_check(self, check: Check) -> None:
         """Add the check to the queue to be run."""
         names = self.names()
         for dep in check.dependencies:
@@ -232,15 +280,15 @@ class Audit:
         self, *, exclude: list[str] | None = None, width: int = 80
     ) -> AsyncGenerator[tuple[Check, Exception]]:
         """Runs each stored check, prints their reports, then prints their recommendations."""
+        print_heading(_("Audit"), width=width)
         if exclude is None:
             exclude = []
-        print_heading("Audit", width=width)
-        if exclude:
-            category_word = "category" if len(exclude) == 1 else "categories"
-            print(f"Skipping checks in the following {category_word}: {', '.join(exclude)}")
-        for check in self.checks:
-            if check.category in exclude:
-                continue
+        elif len(exclude) == 1:
+            print(_("Skipping checks in the following category:"), ", ".join(exclude))
+        elif len(exclude) > 1:
+            print(_("Skipping checks in the following categories:"), ", ".join(exclude))
+        checks = [check for check in self.checks if check.category not in exclude]
+        for check in checks:
             try:
                 async for report in check.run(self.state):
                     print(report.to_str(width=width))
@@ -259,6 +307,13 @@ class Audit:
             if check.category in exclude:
                 continue
             async for report in check.run(self.state):
+                notes = [
+                    {
+                        "text": note.text,
+                        "status": None if note.status is None else note.status.name.lower(),
+                    }
+                    for note in report.notes
+                ]
                 recs = [
                     {"text": rec.text, "mergeable_name": rec.mergeable_name} for rec in report.recs
                 ]
@@ -268,7 +323,7 @@ class Audit:
                         "category": check.category,
                         "description": report.description,
                         "status": report.status.name.lower(),
-                        "warnings": report.warnings,
+                        "notes": notes,
                         "recommendations": recs,
                     }
                 )
@@ -289,7 +344,7 @@ def make_check(
 
     if inspect.isgeneratorfunction(f):
 
-        async def f_async(*args, **kwargs):
+        async def f_async(*args: Any, **kwargs: Any) -> AsyncGenerator[Report]:
             for item in f(*args, **kwargs):
                 yield item
 
@@ -310,7 +365,9 @@ def audit(
 def depends_on(*dependencies: str) -> Callable[..., Check]:
     """Add a dependency to a check."""
 
-    def add_dependencies(f) -> Check:
+    def add_dependencies(
+        f: Check | Callable[..., AsyncGenerator[Report]] | Callable[..., Generator[Report]],
+    ) -> Check:
         check = make_check(f)
         check.dependencies += list(dependencies)
         return check
@@ -321,7 +378,9 @@ def depends_on(*dependencies: str) -> Callable[..., Check]:
 def categorize(cat: str) -> Callable[..., Check]:
     """Mark a check as belonging to a given category."""
 
-    def add_category(f) -> Check:
+    def add_category(
+        f: Check | Callable[..., AsyncGenerator[Report]] | Callable[..., Generator[Report]],
+    ) -> Check:
         check = make_check(f)
         check.category = cat
         return check
